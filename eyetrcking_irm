@@ -1,0 +1,94 @@
+import cv2
+import numpy as np
+import sys
+from PyQt6.QtWidgets import QApplication, QLabel, QMainWindow, QVBoxLayout, QWidget, QPushButton, QSlider, QCheckBox
+from PyQt6.QtGui import QImage, QPixmap  
+from PyQt6.QtCore import Qt  
+
+class EyeTrackerApp(QMainWindow):
+    def __init__(self):
+        super().__init__()
+
+        self.setWindowTitle("Eye Tracking")
+        self.setGeometry(100, 100, 800, 600)
+
+        self.central_widget = QWidget()
+        self.setCentralWidget(self.central_widget)
+
+        self.layout = QVBoxLayout()
+        self.central_widget.setLayout(self.layout)
+
+        self.video_label = QLabel(self)
+        self.layout.addWidget(self.video_label)
+
+        self.start_button = QPushButton("Start")
+        self.start_button.clicked.connect(self.start_tracking)
+        self.layout.addWidget(self.start_button)
+
+        self.stop_button = QPushButton("Stop")
+        self.stop_button.clicked.connect(self.stop_tracking)
+        self.layout.addWidget(self.stop_button)
+
+        self.brightness_slider = QSlider(Qt.Orientation.Vertical)
+        self.brightness_slider.setMinimum(0)
+        self.brightness_slider.setMaximum(100)
+        self.brightness_slider.setValue(50)
+        self.layout.addWidget(self.brightness_slider)
+
+        self.show_pupil_checkbox = QCheckBox("Show pupils")
+        self.show_pupil_checkbox.setChecked(True)
+        self.layout.addWidget(self.show_pupil_checkbox)
+
+        self.tracking = False
+
+    def start_tracking(self):
+        self.tracking = True
+        self.track_eyes()
+
+    def stop_tracking(self):
+        self.tracking = False
+
+    def track_eyes(self):
+        cap = cv2.VideoCapture(0)
+        eye_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_eye.xml")
+
+        while self.tracking:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            brightness = self.brightness_slider.value() / 50.0  
+            frame = cv2.convertScaleAbs(frame, alpha=brightness, beta=30)
+
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            eyes = eye_cascade.detectMultiScale(gray, 1.1, 10)
+
+            for (ex, ey, ew, eh) in eyes:
+                eye_roi = gray[ey:ey+eh, ex:ex+ew]
+
+                blurred_eye = cv2.GaussianBlur(eye_roi, (7, 7), 0)
+                circles = cv2.HoughCircles(blurred_eye, cv2.HOUGH_GRADIENT, 1, 20, param1=50, param2=30, minRadius=5, maxRadius=30)
+
+                cv2.rectangle(frame, (ex, ey), (ex+ew, ey+eh), (0, 255, 0), 2)
+
+                if circles is not None and self.show_pupil_checkbox.isChecked():
+                    circles = np.uint16(np.around(circles))
+                    for i in circles[0, :]:
+                        cv2.circle(frame, (ex + i[0], ey + i[1]), i[2], (0, 0, 255), 2)
+                        cv2.circle(frame, (ex + i[0], ey + i[1]), 2, (0, 255, 255), 3)
+
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            h, w, ch = frame.shape
+            bytes_per_line = ch * w
+            img = QImage(frame.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)  
+            self.video_label.setPixmap(QPixmap.fromImage(img))
+
+            cv2.waitKey(1)
+
+        cap.release()
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = EyeTrackerApp()
+    window.show()
+    sys.exit(app.exec())
